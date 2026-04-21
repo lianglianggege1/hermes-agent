@@ -185,6 +185,15 @@ def _summarize_tool_result(tool_name: str, tool_args: str, tool_content: str) ->
     return f"[{tool_name}]{first_arg} ({content_len:,} chars result)"
 
 
+"""
+默认上下文引擎——通过有损摘要压缩对话上下文。
+算法：
+1. 剪枝旧的工具结果（成本低，无需 LLM 调用）
+2. 保护头部消息（系统提示 + 首次交换）
+3. 通过令牌预算保护尾部消息（最近约 2 万个令牌）
+4. 使用结构化的 LLM 提示摘要中间回合
+5. 在后续压缩过程中，迭代更新之前的摘要
+"""
 class ContextCompressor(ContextEngine):
     """Default context engine — compresses conversation context via lossy summarization.
 

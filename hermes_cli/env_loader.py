@@ -89,6 +89,12 @@ def _sanitize_env_file_if_needed(path: Path) -> None:
         pass  # best-effort — don't block gateway startup
 
 
+# 加载hermes环境变量
+# 加载 Hermes 环境文件时，用户配置优先。
+# 行为：
+# - `~/.hermes/.env` 文件会在存在时覆盖过时的 shell 导出值。
+# - 项目 `.env` 文件作为开发备用方案，仅在用户环境存在时填充缺失值。
+# - 如果用户环境不存在，项目 `.env` 文件也会覆盖过时的 shell 变量。
 def load_hermes_dotenv(
     *,
     hermes_home: str | os.PathLike | None = None,
@@ -104,8 +110,11 @@ def load_hermes_dotenv(
     """
     loaded: list[Path] = []
 
+    # hermes路径
     home_path = Path(hermes_home or os.getenv("HERMES_HOME", Path.home() / ".hermes"))
+    # 用户路径
     user_env = home_path / ".env"
+    # 项目路径
     project_env_path = Path(project_env) if project_env else None
 
     # Fix corrupted .env files before python-dotenv parses them (#8908).

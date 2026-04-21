@@ -14,9 +14,20 @@ def get_hermes_home() -> Path:
     Reads HERMES_HOME env var, falls back to ~/.hermes.
     This is the single source of truth — all other copies should import this.
     """
+    # 返回 Hermes 主目录（默认：~/.hermes）。
+    # 读取 HERMES_HOME 环境变量，如果未读取则使用 ~/.hermes。
+    # 这是唯一正确的源文件——所有其他副本都应该导入此文件。
     return Path(os.getenv("HERMES_HOME", Path.home() / ".hermes"))
 
 
+# 返回 Hermes 根目录，用于配置文件级别的操作。
+# 在标准部署中，根目录为 ``~/.hermes``。
+# 在 Docker 或自定义部署中，如果 ``HERMES_HOME`` 指向 ``~/.hermes`` 之外的目录（例如 ``/opt/data``），则直接返回 ``HERMES_HOME``
+# — 这就是根目录。
+# 在配置文件模式下，如果 ``HERMES_HOME`` 为 ``<root>/profiles/<name>``，
+# 则返回 ``<root>``，以便 ``profile list`` 可以查看所有配置文件。
+# 适用于标准布局 (``~/.hermes/profiles/coder``) 和 Docker 布局 (``/opt/data/profiles/coder``)。
+# 导入安全 — 除标准库之外，不依赖任何其他库。
 def get_default_hermes_root() -> Path:
     """Return the root Hermes directory for profile-level operations.
 

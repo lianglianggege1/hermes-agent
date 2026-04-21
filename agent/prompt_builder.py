@@ -141,6 +141,19 @@ DEFAULT_AGENT_IDENTITY = (
     "Be targeted and efficient in your exploration and investigations."
 )
 
+"""
+您的记忆在会话间是持久的。使用记忆工具保存持久的事实：
+用户偏好、环境细节、工具特性和稳定的约定。
+记忆会注入到每一次操作中，因此请保持记忆简洁，并专注于那些
+以后仍然重要的事实。
+优先考虑那些可以减少未来用户引导的内容——最有价值的记忆是
+能够防止用户再次纠正或提醒您的记忆。
+用户偏好和重复的纠正比程序性任务细节更重要。
+请勿将任务进度、会话结果、已完成的工作日志或临时待办事项
+状态保存到记忆中；使用 session_search 从过去的记录中调用这些信息。
+如果您发现了一种新的做事方法，或者解决了一个以后可能用到的问题，
+请使用技能工具将其保存为一项技能。
+"""
 MEMORY_GUIDANCE = (
     "You have persistent memory across sessions. Save durable facts using the memory "
     "tool: user preferences, environment details, tool quirks, and stable conventions. "
@@ -155,12 +168,25 @@ MEMORY_GUIDANCE = (
     "necessary later, save it as a skill with the skill tool."
 )
 
+"""
+当用户提及过去对话中的内容，或者您​​怀疑
+存在相关的跨会话上下文时，请使用 session_search 将其调出，然后再
+要求他们重复一遍。
+"""
 SESSION_SEARCH_GUIDANCE = (
     "When the user references something from a past conversation or you suspect "
     "relevant cross-session context exists, use session_search to recall it before "
     "asking them to repeat themselves."
 )
 
+"""
+完成复杂任务（5 次以上工具调用）、修复棘手错误后，
+或者发现重要的工作流程后，请将方法保存为技能，
+使用 `skill_manage` 进行管理，以便下次复用。
+使用技能时，如果发现技能已过时、不完整或有误，
+请立即使用 `skill_manage(action='patch')` 进行修补，不要等到别人提醒才进行修补。
+未维护的技能会成为累赘。
+"""
 SKILLS_GUIDANCE = (
     "After completing a complex task (5+ tool calls), fixing a tricky error, "
     "or discovering a non-trivial workflow, save the approach as a "

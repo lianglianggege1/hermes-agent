@@ -45,6 +45,15 @@ _COMMAND_TOOLS = {"terminal"}
 # Prevents scanning all the way to / for deeply nested paths.
 _MAX_ANCESTOR_WALK = 5
 
+"""
+跟踪代理访问的目录，并在首次访问时加载提示。
+用法：
+tracker = SubdirectoryHintTracker(working_dir="/path/to/project")
+# 每次调用工具后：
+hints = tracker.check_tool_call("read_file", {"path": "backend/src/main.py"})
+if hints:
+tool_result += hints # 将提示添加到工具结果字符串中
+"""
 class SubdirectoryHintTracker:
     """Track which directories the agent visits and load hints on first access.
 
