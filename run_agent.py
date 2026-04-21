@@ -4114,7 +4114,7 @@ class AIAgent:
                 self.client = None
         except Exception:
             pass
-
+    #  恢复待办事项
     def _hydrate_todo_store(self, history: List[Dict[str, Any]]) -> None:
         """
         Recover todo state from conversation history.
@@ -4123,6 +4123,13 @@ class AIAgent:
         TodoStore is empty. We scan the history for the most recent todo
         tool response and replay it to reconstruct the state.
         """
+        """
+        从对话历史记录中恢复待办事项状态。
+        
+        网关为每条消息创建一个新的AIAgent，因此内存中
+        TodoStore为空。我们扫描历史记录以查找最近的待办事项
+        工具响应并回放以重建状态。
+        """
         # Walk history backwards to find the most recent todo tool response
         last_todo_response = None
         for msg in reversed(history):
@@ -4130,6 +4137,7 @@ class AIAgent:
                 continue
             content = msg.get("content", "")
             # Quick check: todo responses contain "todos" key
+            # 快速检查：todo响应包含"todos"键
             if '"todos"' not in content:
                 continue
             try:
@@ -4160,7 +4168,7 @@ class AIAgent:
 
 
 
-
+    # 构建系统提示词
     def _build_system_prompt(self, system_message: str = None) -> str:
         """
         Assemble the full system prompt from all layers.
@@ -4168,17 +4176,31 @@ class AIAgent:
         Called once per session (cached on self._cached_system_prompt) and only
         rebuilt after context compression events. This ensures the system prompt
         is stable across all turns in a session, maximizing prefix cache hits.
+        从所有层组装完整的系统提示。
+        
+        每个会话调用一次（缓存在self_cached_system_prompt上），并且仅
+        在上下文压缩事件后重建。这确保了系统提示
+        在会话的所有回合中都是稳定的，最大限度地提高了前缀缓存命中率。
         """
         # Layers (in order):
+        # 图层（按顺序）：
         #   1. Agent identity — SOUL.md when available, else DEFAULT_AGENT_IDENTITY
+        #   1. Agent的身份 - 当SOUL.md存在时用SOUL.md，否则用DEFAULT_AGENT_IDENTITY
         #   2. User / gateway system prompt (if provided)
+        #   2. 用户/网关系统提示（如果有）
         #   3. Persistent memory (frozen snapshot)
+        #   3. 持久内存（冻结快照）
         #   4. Skills guidance (if skills tools are loaded)
+        #   4. 技能指导（如果加载了技能工具）
         #   5. Context files (AGENTS.md, .cursorrules — SOUL.md excluded here when used as identity)
+        #   5. 上下文文件（AGENTS.md，.cursorrules-当SOUL.md被用于身份时排除）
         #   6. Current date & time (frozen at build time)
+        #    6. 当前日期和时间（构建时冻结）
         #   7. Platform-specific formatting hint
+        #   7. 平台特定的格式提示
 
         # Try SOUL.md as primary identity (unless context files are skipped)
+        # 尝试用SOUL.md作为主要身份（除非跳过上下文文件）
         _soul_loaded = False
         if not self.skip_context_files:
             _soul_content = load_soul_md()
@@ -4206,11 +4228,17 @@ class AIAgent:
             prompt_parts.append(nous_subscription_prompt)
         # Tool-use enforcement: tells the model to actually call tools instead
         # of describing intended actions.  Controlled by config.yaml
+        # 工具使用强制：告诉模型实际调用工具，而不是描述预期的操作。由config.yaml控制
         # agent.tool_use_enforcement:
         #   "auto" (default) — matches TOOL_USE_ENFORCEMENT_MODELS
         #   true  — always inject (all models)
         #   false — never inject
         #   list  — custom model-name substrings to match
+        #agent.tool_use_enforcement：
+        #“auto”（默认）--匹配TOOL_USE_ENFORCEMENT_MODELS
+        # true--始终注入（所有模型）
+        # false-永远不要注射
+        # list--要匹配的自定义模型名称子字符串
         if self.valid_tool_names:
             _enforce = self._tool_use_enforcement
             _inject = False
@@ -4223,6 +4251,7 @@ class AIAgent:
                 _inject = any(p.lower() in model_lower for p in _enforce if isinstance(p, str))
             else:
                 # "auto" or any unrecognised value — use hardcoded defaults
+                # "auto” 或任何未识别的值-使用硬编码默认值
                 model_lower = (self.model or "").lower()
                 _inject = any(p in model_lower for p in TOOL_USE_ENFORCEMENT_MODELS)
             if _inject:
@@ -4241,6 +4270,10 @@ class AIAgent:
 
         # Note: ephemeral_system_prompt is NOT included here. It's injected at
         # API-call time only so it stays out of the cached/stored system prompt.
+        #因此，它可以向用户推荐这些答案，而不是重新设计答案。
+
+        #注意：此处不包括ephemeral_system_prompt。它被注射在
+        #仅API调用时间，以便它不在缓存/存储的系统提示中。
         if system_message is not None:
             prompt_parts.append(system_message)
 
@@ -4256,6 +4289,7 @@ class AIAgent:
                     prompt_parts.append(user_block)
 
         # External memory provider system prompt block (additive to built-in)
+        # 外部内存提供程序系统提示块（ additive to built-in）
         if self._memory_manager:
             try:
                 _ext_mem_block = self._memory_manager.build_system_prompt()
@@ -4273,6 +4307,7 @@ class AIAgent:
                 )
                 if toolset
             }
+            # skill的提示词
             skills_prompt = build_skills_system_prompt(
                 available_tools=self.valid_tool_names,
                 available_toolsets=avail_toolsets,
@@ -4287,13 +4322,20 @@ class AIAgent:
             # mode).  The gateway process runs from the hermes-agent install
             # dir, so os.getcwd() would pick up the repo's AGENTS.md and
             # other dev files — inflating token usage by ~10k for no benefit.
+            # 设置时使用TERMINAL_CWD进行上下文文件发现（网关
+            # 模式）。网关进程从hermes代理安装开始运行
+            # dir，所以os.getcwd（）将获取仓库的AGENTS.md
+            # 其他开发文件——将令牌使用量放大了~10k，但没有任何好处。
             _context_cwd = os.getenv("TERMINAL_CWD") or None
             context_files_prompt = build_context_files_prompt(
                 cwd=_context_cwd, skip_soul=_soul_loaded)
+            # 上下文文件提示词
             if context_files_prompt:
                 prompt_parts.append(context_files_prompt)
-
+        
+        # 一些基本信息
         from hermes_time import now as _hermes_now
+        # 对话开始时间
         now = _hermes_now()
         timestamp_line = f"Conversation started: {now.strftime('%A, %B %d, %Y %I:%M %p')}"
         if self.pass_session_id and self.session_id:
@@ -4307,6 +4349,9 @@ class AIAgent:
         # Alibaba Coding Plan API always returns "glm-4.7" as model name regardless
         # of the requested model. Inject explicit model identity into the system prompt
         # so the agent can correctly report which model it is (workaround for API bug).
+        # 阿里巴巴编码计划API始终返回“glm-4.7”作为型号名称
+        # 所请求的模型。在系统提示符中注入显式模型标识
+        # 因此代理可以正确地报告它是哪个模型（API错误的解决方法）。
         if self.provider == "alibaba":
             _model_short = self.model.split("/")[-1] if "/" in self.model else self.model
             prompt_parts.append(
@@ -4318,6 +4363,8 @@ class AIAgent:
 
         # Environment hints (WSL, Termux, etc.) — tell the agent about the
         # execution environment so it can translate paths and adapt behavior.
+        # 环境提示（WSL、Termux等）——告诉代理有关
+        # 执行环境，因此它可以转换路径并适应行为。
         _env_hints = build_environment_hints()
         if _env_hints:
             prompt_parts.append(_env_hints)
