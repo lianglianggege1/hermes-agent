@@ -4364,7 +4364,7 @@ class AIAgent:
         # Environment hints (WSL, Termux, etc.) — tell the agent about the
         # execution environment so it can translate paths and adapt behavior.
         # 环境提示（WSL、Termux等）——告诉代理有关
-        # 执行环境，因此它可以转换路径并适应行为。
+        #执行环境，因此它可以转换路径并适应行为。
         _env_hints = build_environment_hints()
         if _env_hints:
             prompt_parts.append(_env_hints)
@@ -4377,17 +4377,21 @@ class AIAgent:
 
     # =========================================================================
     # Pre/post-call guardrails (inspired by PR #1321 — @alireza78a)
+    # 呼叫前/呼叫后护栏（灵感来自PR#1321--@alireza78a）
     # =========================================================================
-
+    
+    # 获取tool_call的id
     @staticmethod
     def _get_tool_call_id_static(tc) -> str:
         """Extract call ID from a tool_call entry (dict or object)."""
+        """从tool_call条目（字典或对象）中提取调用ID。"""
         if isinstance(tc, dict):
             return tc.get("id", "") or ""
         return getattr(tc, "id", "") or ""
 
     _VALID_API_ROLES = frozenset({"system", "user", "assistant", "tool", "function", "developer"})
 
+    # 清理api消息
     @staticmethod
     def _sanitize_api_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Fix orphaned tool_call / tool_result pairs before every LLM call.
@@ -4396,7 +4400,14 @@ class AIAgent:
         is present — so orphans from session loading or manual message
         manipulation are always caught.
         """
+        """
+        修复每次LLM调用前孤立的tool_call/tool_result对。
+
+        无条件运行——不受上下文压缩器是否关闭的限制
+        存在--因此会话加载或手动消息中的孤儿
+        操纵总是被抓住。"""
         # --- Role allowlist: drop messages with roles the API won't accept ---
+        # 角色允许列表：删除API不接受角色的消息
         filtered = []
         for msg in messages:
             role = msg.get("role")
@@ -4425,6 +4436,7 @@ class AIAgent:
                     result_call_ids.add(cid)
 
         # 1. Drop tool results with no matching assistant call
+        # 1. 删除没有匹配的助手调用的tool结果
         orphaned_results = result_call_ids - surviving_call_ids
         if orphaned_results:
             messages = [
@@ -4437,6 +4449,7 @@ class AIAgent:
             )
 
         # 2. Inject stub results for calls whose result was dropped
+        # 2. 为结果被丢弃的调用注入存根结果
         missing_results = surviving_call_ids - result_call_ids
         if missing_results:
             patched: List[Dict[str, Any]] = []
@@ -4446,6 +4459,7 @@ class AIAgent:
                     for tc in msg.get("tool_calls") or []:
                         cid = AIAgent._get_tool_call_id_static(tc)
                         if cid in missing_results:
+                            # 结果不可用——请参阅上面的上下文摘要
                             patched.append({
                                 "role": "tool",
                                 "content": "[Result unavailable — see context summary above]",
@@ -4458,6 +4472,7 @@ class AIAgent:
             )
         return messages
 
+    # cap委托任务调用
     @staticmethod
     def _cap_delegate_task_calls(tool_calls: list) -> list:
         """Truncate excess delegate_task calls to max_concurrent_children.
@@ -4467,6 +4482,15 @@ class AIAgent:
         turn.  This truncates the excess, preserving all non-delegate calls.
 
         Returns the original list if no truncation was needed.
+        """
+        """
+        截断对max_countrent_children的过量delegate_task调用。
+
+        delegate_tool在一次调用中限制了任务列表，但
+        模型可以同时发出多个单独的delegate_task-toolcall
+        转身。这截断了多余的部分，保留了所有非委托调用。
+
+        如果不需要截断，则返回原始列表。
         """
         from tools.delegate_tool import _get_max_concurrent_children
         max_children = _get_max_concurrent_children()
@@ -4488,13 +4512,18 @@ class AIAgent:
             delegate_count - max_children, max_children,
         )
         return truncated
-
+    
+    # 重复数据消除工具调用
     @staticmethod
     def _deduplicate_tool_calls(tool_calls: list) -> list:
         """Remove duplicate (tool_name, arguments) pairs within a single turn.
 
         Only the first occurrence of each unique pair is kept.
         Returns the original list if no duplicates were found.
+        在一个回合内删除重复的（tool_name、arguments）对。
+
+        只保留每个唯一配对的第一次出现。
+        如果没有找到重复项，则返回原始列表。
         """
         seen: set = set()
         unique: list = []
@@ -4506,7 +4535,8 @@ class AIAgent:
             else:
                 logger.warning("Removed duplicate tool call: %s", tc.function.name)
         return unique if len(unique) < len(tool_calls) else tool_calls
-
+    
+    # 修复工具调用
     def _repair_tool_call(self, tool_name: str) -> str | None:
         """Attempt to repair a mismatched tool name before aborting.
 
@@ -4515,37 +4545,54 @@ class AIAgent:
         3. Try fuzzy match (difflib, cutoff=0.7)
 
         Returns the repaired name if found in valid_tool_names, else None.
+
+        在中止之前，尝试修复不匹配的工具名称。
+
+        1.尝试小写
+        2.尝试标准化（小写+连字符/空格->下划线）
+        3.尝试模糊匹配（difflib，截止值=0.7）
+
+        如果在valid_tool_names中找到修复名称，则返回修复名称，否则返回None。
         """
         from difflib import get_close_matches
 
         # 1. Lowercase
+        # 1. 小写
         lowered = tool_name.lower()
         if lowered in self.valid_tool_names:
             return lowered
 
         # 2. Normalize
+        # 2. 正规化
         normalized = lowered.replace("-", "_").replace(" ", "_")
         if normalized in self.valid_tool_names:
             return normalized
 
         # 3. Fuzzy match
+        # 3. 模糊匹配
         matches = get_close_matches(lowered, self.valid_tool_names, n=1, cutoff=0.7)
         if matches:
             return matches[0]
 
         return None
 
+    # 无效的系统提示词
     def _invalidate_system_prompt(self):
         """
         Invalidate the cached system prompt, forcing a rebuild on the next turn.
         
         Called after context compression events. Also reloads memory from disk
         so the rebuilt prompt captures any writes from this session.
+        使缓存的系统提示无效，强制在下一回合重新生成。
+        
+        在上下文压缩事件之后调用。同时从磁盘重新加载内存
+        因此，重建的提示符会捕获此会话中的任何写入。
         """
         self._cached_system_prompt = None
         if self._memory_store:
             self._memory_store.load_from_disk()
-
+    
+    # 响应工具
     def _responses_tools(self, tools: Optional[List[Dict[str, Any]]] = None) -> Optional[List[Dict[str, Any]]]:
         """Convert chat-completions tool schemas to Responses function-tool schemas."""
         source_tools = tools if tools is not None else self.tools
@@ -4566,7 +4613,8 @@ class AIAgent:
                 "parameters": fn.get("parameters", {"type": "object", "properties": {}}),
             })
         return converted or None
-
+    
+    # 确定callId
     @staticmethod
     def _deterministic_call_id(fn_name: str, arguments: str, index: int = 0) -> str:
         """Generate a deterministic call_id from tool call content.
@@ -4574,15 +4622,23 @@ class AIAgent:
         Used as a fallback when the API doesn't provide a call_id.
         Deterministic IDs prevent cache invalidation — random UUIDs would
         make every API call's prefix unique, breaking OpenAI's prompt cache.
+
+        从工具调用内容生成确定性call_id。
+
+        当API未提供call_id时，用作回退。
+        确定性ID可防止缓存失效——随机UUID将
+        使每个API调用的前缀都是唯一的，打破了OpenAI的提示缓存。
         """
         import hashlib
         seed = f"{fn_name}:{arguments}:{index}"
         digest = hashlib.sha256(seed.encode("utf-8", errors="replace")).hexdigest()[:12]
         return f"call_{digest}"
-
+    
+    # 拆分响应tool_id
     @staticmethod
     def _split_responses_tool_id(raw_id: Any) -> tuple[Optional[str], Optional[str]]:
         """Split a stored tool id into (call_id, response_item_id)."""
+        """将存储的工具id拆分为（call_id，response_item_id）。"""
         if not isinstance(raw_id, str):
             return None, None
         value = raw_id.strip()
@@ -4597,6 +4653,7 @@ class AIAgent:
             return None, value
         return value, None
 
+    # 导出响应函数call_id
     def _derive_responses_function_call_id(
         self,
         call_id: str,
@@ -4628,6 +4685,7 @@ class AIAgent:
 
     def _chat_messages_to_responses_input(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Convert internal chat-style messages to Responses input items."""
+        """将内部聊天风格的消息转换为响应输入项。"""
         items: List[Dict[str, Any]] = []
         seen_item_ids: set = set()
 
@@ -4645,6 +4703,8 @@ class AIAgent:
                 if role == "assistant":
                     # Replay encrypted reasoning items from previous turns
                     # so the API can maintain coherent reasoning chains.
+                    # 重播前几回合的加密推理项目
+                    # 因此API可以保持一致的推理链。
                     codex_reasoning = msg.get("codex_reasoning_items")
                     has_codex_reasoning = False
                     if isinstance(codex_reasoning, list):
@@ -4671,6 +4731,11 @@ class AIAgent:
                         # When the assistant produced only reasoning with no visible
                         # content, emit an empty assistant message as the required
                         # following item.
+                        # 响应API要求在每个响应之后提供以下项目
+                        # 推理项（否则：missing_following_item错误）。
+                        # 当助手只讲道理，看不见时
+                        # 内容，根据需要发出空的助手消息
+                        # 以下项目。
                         items.append({"role": "assistant", "content": ""})
 
                     tool_calls = msg.get("tool_calls")
@@ -4735,6 +4800,7 @@ class AIAgent:
 
         return items
 
+    # 预检codex 输入items
     def _preflight_codex_input_items(self, raw_items: Any) -> List[Dict[str, Any]]:
         if not isinstance(raw_items, list):
             raise ValueError("Codex Responses input must be a list of input items.")
@@ -4827,7 +4893,8 @@ class AIAgent:
             )
 
         return normalized
-
+    
+    # 预检codex api kwargs
     def _preflight_codex_api_kwargs(
         self,
         api_kwargs: Any,
@@ -4970,9 +5037,11 @@ class AIAgent:
             )
 
         return normalized
-
+    
+    # 提取响应消息的文本
     def _extract_responses_message_text(self, item: Any) -> str:
         """Extract assistant text from a Responses message output item."""
+        """从响应消息输出项中提取辅助文本。"""
         content = getattr(item, "content", None)
         if not isinstance(content, list):
             return ""
@@ -4986,9 +5055,11 @@ class AIAgent:
             if isinstance(text, str) and text:
                 chunks.append(text)
         return "".join(chunks).strip()
-
+    
+    # 提取响应的推理文本
     def _extract_responses_reasoning_text(self, item: Any) -> str:
         """Extract a compact reasoning text from a Responses reasoning item."""
+        """从响应推理项中提取一个紧凑推理文本。"""
         summary = getattr(item, "summary", None)
         if isinstance(summary, list):
             chunks: List[str] = []
@@ -5003,8 +5074,10 @@ class AIAgent:
             return text.strip()
         return ""
 
+    # 规范化codex响应
     def _normalize_codex_response(self, response: Any) -> tuple[Any, str]:
         """Normalize a Responses API object to an assistant_message-like object."""
+        """规范化一个Responses API对象为与assistant_message类似对象。"""
         output = getattr(response, "output", None)
         if not isinstance(output, list) or not output:
             # The Codex backend can return empty output when the answer was
@@ -5043,6 +5116,7 @@ class AIAgent:
         reasoning_items_raw: List[Dict[str, Any]] = []
         tool_calls: List[Any] = []
         has_incomplete_items = response_status in {"queued", "in_progress", "incomplete"}
+        # 评论部分
         saw_commentary_phase = False
         saw_final_answer_phase = False
 
@@ -5056,18 +5130,22 @@ class AIAgent:
 
             if item_status in {"queued", "in_progress", "incomplete"}:
                 has_incomplete_items = True
-
+            
+            # 消息
             if item_type == "message":
                 item_phase = getattr(item, "phase", None)
                 if isinstance(item_phase, str):
                     normalized_phase = item_phase.strip().lower()
+                    # 评论和分析
                     if normalized_phase in {"commentary", "analysis"}:
                         saw_commentary_phase = True
+                    # 最终答案和最终
                     elif normalized_phase in {"final_answer", "final"}:
                         saw_final_answer_phase = True
                 message_text = self._extract_responses_message_text(item)
                 if message_text:
                     content_parts.append(message_text)
+            # 推理
             elif item_type == "reasoning":
                 reasoning_text = self._extract_responses_reasoning_text(item)
                 if reasoning_text:
@@ -5075,6 +5153,9 @@ class AIAgent:
                 # Capture the full reasoning item for multi-turn continuity.
                 # encrypted_content is an opaque blob the API needs back on
                 # subsequent turns to maintain coherent reasoning chains.
+                # 捕获多回合连续性的完整推理项。
+                # encrypted_content是API需要返回的不透明blob
+                # 后续的回合以保持连贯的推理链。
                 encrypted = getattr(item, "encrypted_content", None)
                 if isinstance(encrypted, str) and encrypted:
                     raw_item = {"type": "reasoning", "encrypted_content": encrypted}
@@ -5082,6 +5163,7 @@ class AIAgent:
                     if isinstance(item_id, str) and item_id:
                         raw_item["id"] = item_id
                     # Capture summary — required by the API when replaying reasoning items
+                    # 捕获摘要-API在回放推理项目时需要
                     summary = getattr(item, "summary", None)
                     if isinstance(summary, list):
                         raw_summary = []
@@ -5091,6 +5173,7 @@ class AIAgent:
                                 raw_summary.append({"type": "summary_text", "text": text})
                         raw_item["summary"] = raw_summary
                     reasoning_items_raw.append(raw_item)
+            # 函数调用
             elif item_type == "function_call":
                 if item_status in {"queued", "in_progress", "incomplete"}:
                     continue
@@ -5114,6 +5197,7 @@ class AIAgent:
                     type="function",
                     function=SimpleNamespace(name=fn_name, arguments=arguments),
                 ))
+            # 自定义工具调用
             elif item_type == "custom_tool_call":
                 fn_name = getattr(item, "name", "") or ""
                 arguments = getattr(item, "input", "{}")
@@ -5142,6 +5226,7 @@ class AIAgent:
             if isinstance(out_text, str):
                 final_text = out_text.strip()
 
+        # 助手消息 
         assistant_message = SimpleNamespace(
             content=final_text,
             tool_calls=tool_calls,
@@ -5152,8 +5237,10 @@ class AIAgent:
         )
 
         if tool_calls:
+            # 工具调用
             finish_reason = "tool_calls"
         elif has_incomplete_items or (saw_commentary_phase and not saw_final_answer_phase):
+            # 推理未完成
             finish_reason = "incomplete"
         elif reasoning_items_raw and not final_text:
             # Response contains only reasoning (encrypted thinking state) with
@@ -5162,24 +5249,34 @@ class AIAgent:
             # "stop" would send it into the empty-content retry loop which burns
             # 3 retries then fails — treat it as incomplete instead so the Codex
             # continuation path handles it correctly.
+            # 响应仅包含推理（加密思维状态）
+            # 没有可见的内容或工具调用。模型仍在思考和
+            # 需要另外再调用一次才能得出实际答案。将其标记为
+            # “stop”会将其发送到空内容重试循环，该循环会燃烧
+            # 然后重试3次失败——将其视为不完整，因此codex
+            # 延续路径正确地处理了它。
             finish_reason = "incomplete"
         else:
             finish_reason = "stop"
         return assistant_message, finish_reason
-
+    
+    # 线程标识
     def _thread_identity(self) -> str:
         thread = threading.current_thread()
         return f"{thread.name}:{thread.ident}"
 
+    # 客户端的log内容
     def _client_log_context(self) -> str:
         provider = getattr(self, "provider", "unknown")
         base_url = getattr(self, "base_url", "unknown")
         model = getattr(self, "model", "unknown")
+        # 只查看当前线程和所使用模型的一些信息
         return (
             f"thread={self._thread_identity()} provider={provider} "
             f"base_url={base_url} model={model}"
         )
 
+    # OpenAI客户端锁
     def _openai_client_lock(self) -> threading.RLock:
         lock = getattr(self, "_client_lock", None)
         if lock is None:
@@ -5187,6 +5284,7 @@ class AIAgent:
             self._client_lock = lock
         return lock
 
+    # openai的客户端是否关闭
     @staticmethod
     def _is_openai_client_closed(client: Any) -> bool:
         """Check if an OpenAI client is closed.
@@ -5206,6 +5304,7 @@ class AIAgent:
         is_closed_attr = getattr(client, "is_closed", None)
         if is_closed_attr is not None:
             # Handle method (openai SDK) vs property (httpx)
+            # 处理method (openai SDK)和属性(httpx)
             if callable(is_closed_attr):
                 if is_closed_attr():
                     return True
@@ -5216,7 +5315,8 @@ class AIAgent:
         if http_client is not None:
             return bool(getattr(http_client, "is_closed", False))
         return False
-
+    
+    # 创建openai客户端
     def _create_openai_client(self, client_kwargs: dict, *, reason: str, shared: bool) -> Any:
         from agent.auxiliary_client import _validate_base_url, _validate_proxy_env_urls
         # Treat client_kwargs as read-only. Callers pass self._client_kwargs (or shallow
@@ -5227,6 +5327,14 @@ class AIAgent:
         # has been closed" on every retry. The revert resolved that specific path; this
         # copy locks the contract so future transport/keepalive work can't reintroduce
         # the same class of bug.
+        # 将client_kwargs视为只读。来电者自行通过。_client_kwargs（或浅
+        # 副本）；任何原地突变都会泄漏回存储的字典中
+        # 在后续请求中重复使用。#10933通过注入httpx实现了这一点。客户
+        # 在第一个请求后被拆除的传输，因此下一个请求
+        # 包装了一个封闭的传输并引发“无法发送请求，因为客户端
+        # 每次重试时“已关闭”。还原解析了该特定路径；这
+        # 复制锁定了合同，因此未来的传输/保持活动工作无法重新引入
+        # 同一类bug。
         client_kwargs = dict(client_kwargs)
         _validate_proxy_env_urls()
         _validate_base_url(client_kwargs.get("base_url"))
@@ -5265,7 +5373,8 @@ class AIAgent:
             self._client_log_context(),
         )
         return client
-
+    
+    # t强制关闭tcp socket
     @staticmethod
     def _force_close_tcp_sockets(client: Any) -> int:
         """Force-close underlying TCP sockets to prevent CLOSE-WAIT accumulation.
@@ -5277,6 +5386,15 @@ class AIAgent:
         force an immediate TCP RST, freeing the file descriptors.
 
         Returns the number of sockets force-closed.
+        强制关闭底层TCP套接字以防止close-WAIT累积。
+
+        当提供者中途断开连接时，httpx的`client.close（）``
+        执行优雅的关机，使套接字处于CLOSE-WAIT状态，直到
+        操作系统会超时（通常为几分钟）。此方法遍历httpx传输
+        池并向发出`socket.shutdown（SHUT_RDWR）`+`socket.close（）`
+        强制立即执行TCP RST，释放文件描述符。
+
+        返回强制关闭的套接字数量。
         """
         import socket as _socket
 
@@ -5325,11 +5443,13 @@ class AIAgent:
             logger.debug("Force-close TCP sockets sweep error: %s", exc)
         return closed
 
+    # 关闭openai客户端
     def _close_openai_client(self, client: Any, *, reason: str, shared: bool) -> None:
         if client is None:
             return
         # Force-close TCP sockets first to prevent CLOSE-WAIT accumulation,
         # then do the graceful SDK-level close.
+        # 首先强制关闭TCP套接字以防止close-WAIT累积，然后进行优雅的SDK级别关闭。
         force_closed = self._force_close_tcp_sockets(client)
         try:
             client.close()
@@ -5349,6 +5469,7 @@ class AIAgent:
                 exc,
             )
 
+    # 替换主openai客户端
     def _replace_primary_openai_client(self, *, reason: str) -> bool:
         with self._openai_client_lock():
             old_client = getattr(self, "client", None)
@@ -5366,6 +5487,7 @@ class AIAgent:
         self._close_openai_client(old_client, reason=f"replace:{reason}", shared=True)
         return True
 
+    # 确保主要openai客户端
     def _ensure_primary_openai_client(self, *, reason: str) -> Any:
         with self._openai_client_lock():
             client = getattr(self, "client", None)
@@ -5381,7 +5503,8 @@ class AIAgent:
             raise RuntimeError("Failed to recreate closed OpenAI client")
         with self._openai_client_lock():
             return self.client
-
+    
+    # 清理已经死亡的连接
     def _cleanup_dead_connections(self) -> bool:
         """Detect and clean up dead TCP connections on the primary client.
 
@@ -5390,6 +5513,13 @@ class AIAgent:
         and rebuilds the primary client from scratch.
 
         Returns True if dead connections were found and cleaned up.
+        检测并清理主客户端上的死TCP连接。
+
+        检查httpx连接池中是否有处于不健康状态的套接字
+        （关闭-等待，错误）。如果发现任何插座，强制关闭所有插座
+        并从头开始重建主客户端。
+
+        如果发现并清理了死连接，则返回True。
         """
         client = getattr(self, "client", None)
         if client is None:
@@ -5412,6 +5542,7 @@ class AIAgent:
             dead_count = 0
             for conn in list(connections):
                 # Check for connections that are idle but have closed sockets
+                # 检查连接处于空闲但已关闭的套接字
                 stream = (
                     getattr(conn, "_network_stream", None)
                     or getattr(conn, "_stream", None)
@@ -5452,6 +5583,7 @@ class AIAgent:
             logger.debug("Dead connection check error: %s", exc)
         return False
 
+    # 创建请求openai客户端
     def _create_request_openai_client(self, *, reason: str) -> Any:
         from unittest.mock import Mock
 
@@ -5461,10 +5593,12 @@ class AIAgent:
         with self._openai_client_lock():
             request_kwargs = dict(self._client_kwargs)
         return self._create_openai_client(request_kwargs, reason=reason, shared=False)
-
+    
+    # 关闭请求openai客户端
     def _close_request_openai_client(self, client: Any, *, reason: str) -> None:
         self._close_openai_client(client, reason=reason, shared=False)
-
+    
+    # 运行codex流
     def _run_codex_stream(self, api_kwargs: dict, client: Any = None, on_first_delta: callable = None):
         """Execute one streaming Responses API request and return the final response."""
         import httpx as _httpx
@@ -5476,6 +5610,7 @@ class AIAgent:
         # Accumulate streamed text so we can recover if get_final_response()
         # returns empty output (e.g. chatgpt.com backend-api sends
         # response.incomplete instead of response.completed).
+        # 累积流式文本，这样我们就可以在get_final_response（）返回空输出时进行恢复（例如，chatgpt.com后端api发送response.emplement而不是response.employed）。
         self._codex_streamed_text_parts: list = []
         for attempt in range(max_stream_retries + 1):
             collected_output_items: list = []
@@ -5501,9 +5636,11 @@ class AIAgent:
                                             pass
                                 self._fire_stream_delta(delta_text)
                         # Track tool calls to suppress text streaming
+                        # 跟踪工具调用以禁止文本流
                         elif "function_call" in event_type:
                             has_tool_calls = True
                         # Fire reasoning callbacks
+                        # 触发推理回调
                         elif "reasoning" in event_type and "delta" in event_type:
                             reasoning_text = getattr(event, "delta", "")
                             if reasoning_text:
@@ -5723,6 +5860,7 @@ class AIAgent:
         self._client_kwargs["api_key"] = self.api_key
         self._client_kwargs["base_url"] = self.base_url
         # Nous requests should not inherit OpenRouter-only attribution headers.
+        # Nous请求不应仅继承OpenRouter的归因标头。
         self._client_kwargs.pop("default_headers", None)
 
         if not self._replace_primary_openai_client(reason="nous_credential_refresh"):
@@ -5730,6 +5868,7 @@ class AIAgent:
 
         return True
 
+    # 尝试刷新anthropic_messages客户端凭证
     def _try_refresh_anthropic_client_credentials(self) -> bool:
         if self.api_mode != "anthropic_messages" or not hasattr(self, "_anthropic_api_key"):
             return False
@@ -5834,6 +5973,19 @@ class AIAgent:
         providers that surface billing/rate-limit/auth conditions under a
         different status code, such as Anthropic returning HTTP 400 for
         "out of extra usage".
+        尝试通过池轮换进行凭据恢复。
+
+        返回（已恢复，has_retried_429）。
+        关于速率限制：第一次重试相同的凭据（设置标志True）。
+        连续第二次失败将转到下一个凭证。
+        账单用尽时：立即轮换。
+        在身份验证失败时：在轮换之前尝试刷新令牌。
+
+        `classified_reason让恢复路径尊重结构化错误
+        分类器，而不是仅依赖原始HTTP代码。这很重要
+        在特定条件下提出计费/费率限制/身份验证条件的提供商
+        不同的状态码，例如Anthropic返回HTTP 400
+        “出于额外使用”。
         """
         pool = self._credential_pool
         if pool is None:
@@ -5902,6 +6054,7 @@ class AIAgent:
             self._try_refresh_anthropic_client_credentials()
         return self._anthropic_client.messages.create(**api_kwargs)
 
+    # 中断api调用
     def _interruptible_api_call(self, api_kwargs: dict):
         """
         Run the API call in a background thread so the main conversation loop
@@ -5915,6 +6068,17 @@ class AIAgent:
         configured timeout, the connection is killed and an error raised so
         the main retry loop can try again with backoff / credential rotation /
         provider fallback.
+        在后台线程中运行API调用，以便主对话循环
+        可以检测中断，而无需等待完整的HTTP往返。
+
+        每个工作线程都有自己的OpenAI客户端实例。仅中断
+        关闭该worker本地客户端，因此重试和其他请求永远不会
+        继承封闭式交通。
+
+        包括一个过时的呼叫检测器：如果在
+        配置超时后，连接将被终止并引发错误，因此
+        主重试循环可以通过回退/凭证轮换重试/
+        提供商回退。
         """
         result = {"response": None, "error": None}
         request_client_holder = {"client": None}
@@ -5932,6 +6096,7 @@ class AIAgent:
                     result["response"] = self._anthropic_messages_create(api_kwargs)
                 elif self.api_mode == "bedrock_converse":
                     # Bedrock uses boto3 directly — no OpenAI client needed.
+                    # Bedrock直接使用boto3，不需要OpenAI客户端。
                     from agent.bedrock_adapter import (
                         _get_bedrock_runtime_client,
                         normalize_converse_response,
@@ -5957,6 +6122,12 @@ class AIAgent:
         # httpx timeout (default 1800s) with zero feedback.  The stale
         # detector kills the connection early so the main retry loop can
         # apply richer recovery (credential rotation, provider fallback).
+        # ── 过期呼叫超时（镜像流式过期检测器）────────
+        # 非流式呼叫在完全响应之前不会返回任何内容
+        # 准备好了。如果没有这个，挂起的提供者可以完全阻止
+        # httpx超时（默认1800），无反馈。陈旧的
+        # 检测器提前终止连接，以便主重试循环可以
+        # 应用更丰富的恢复（凭证轮换、提供商回退）。
         _stale_base = float(os.getenv("HERMES_API_CALL_STALE_TIMEOUT", 300.0))
         _base_url = getattr(self, "_base_url", None) or ""
         if _stale_base == 300.0 and _base_url and is_local_endpoint(_base_url):
@@ -5982,6 +6153,8 @@ class AIAgent:
 
             # Touch activity every ~30s so the gateway's inactivity
             # monitor knows we're alive while waiting for the response.
+            # 每隔约30秒触摸一次活动，因此网关处于非活动状态
+            # 监视器在等待响应时知道我们还活着。
             if _poll_count % 100 == 0:  # 100 × 0.3s = 30s
                 _elapsed = time.time() - _call_start
                 self._touch_activity(
@@ -6056,24 +6229,28 @@ class AIAgent:
         return result["response"]
 
     # ── Unified streaming API call ─────────────────────────────────────────
+    # -- 统一流式API调用 -------
 
     def _reset_stream_delivery_tracking(self) -> None:
         """Reset tracking for text delivered during the current model response."""
+        """重新设置流式API调用的跟踪"""
         self._current_streamed_assistant_text = ""
 
     def _record_streamed_assistant_text(self, text: str) -> None:
         """Accumulate visible assistant text emitted through stream callbacks."""
+        """累积通过流式API调用发出的可见助手文本"""
         if isinstance(text, str) and text:
             self._current_streamed_assistant_text = (
                 getattr(self, "_current_streamed_assistant_text", "") + text
             )
 
+    # 规范化临时可见文本
     @staticmethod
     def _normalize_interim_visible_text(text: str) -> str:
         if not isinstance(text, str):
             return ""
         return re.sub(r"\s+", " ", text).strip()
-
+    # 临时可见内容是否被流式
     def _interim_content_was_streamed(self, content: str) -> bool:
         visible_content = self._normalize_interim_visible_text(
             self._strip_think_blocks(content or "")
@@ -6084,9 +6261,10 @@ class AIAgent:
             self._strip_think_blocks(getattr(self, "_current_streamed_assistant_text", "") or "")
         )
         return bool(streamed) and streamed == visible_content
-
+    
     def _emit_interim_assistant_message(self, assistant_msg: Dict[str, Any]) -> None:
         """Surface a real mid-turn assistant commentary message to the UI layer."""
+        """在UI层显示一条真正的中途助理评论消息。"""
         cb = getattr(self, "interim_assistant_callback", None)
         if cb is None or not isinstance(assistant_msg, dict):
             return
@@ -6102,10 +6280,15 @@ class AIAgent:
 
     def _fire_stream_delta(self, text: str) -> None:
         """Fire all registered stream delta callbacks (display + TTS)."""
+        """触发所有注册的流式增量回调（显示+TTS）"""
         # If a tool iteration set the break flag, prepend a single paragraph
         # break before the first real text delta.  This prevents the original
         # problem (text concatenation across tool boundaries) without stacking
         # blank lines when multiple tool iterations run back-to-back.
+        # 如果工具迭代设置了中断标志，则在前面添加一个段落
+        # 在第一个实际文本增量之前中断。这会阻止原始
+        # 没有堆叠的问题（跨工具边界的文本拼接）
+        # 当多个工具迭代背靠背运行时，会出现空白行。
         if getattr(self, "_stream_needs_break", False) and text and text.strip():
             self._stream_needs_break = False
             text = "\n\n" + text
@@ -6122,6 +6305,7 @@ class AIAgent:
 
     def _fire_reasoning_delta(self, text: str) -> None:
         """Fire reasoning callback if registered."""
+        """如果已注册，则进行火灾推理回调。"""
         cb = self.reasoning_callback
         if cb is not None:
             try:
@@ -6136,6 +6320,12 @@ class AIAgent:
         tool_call / tool_use tokens.  Gives the TUI a chance to show a spinner
         or status line so the user isn't staring at a frozen screen while a
         large tool payload (e.g. a 45 KB write_file) is being generated.
+        通知显示层模型正在生成工具调用参数。
+
+        当流式响应开始产生时，每个工具名称触发一次
+        tool_call/tool_use令牌。给TUI一个展示旋转器的机会
+        或状态行，这样用户就不会在屏幕冻结时盯着屏幕看
+        正在生成大的工具有效载荷（例如45KB的write_file）。
         """
         cb = self.tool_gen_callback
         if cb is not None:
@@ -6146,6 +6336,7 @@ class AIAgent:
 
     def _has_stream_consumers(self) -> bool:
         """Return True if any streaming consumer is registered."""
+        """如果注册了任何流媒体消费者，则返回True。"""
         return (
             self.stream_delta_callback is not None
             or getattr(self, "_stream_callback", None) is not None
@@ -6168,12 +6359,31 @@ class AIAgent:
 
         Falls back to _interruptible_api_call on provider errors indicating
         streaming is not supported.
+
+        用于实时令牌传递的_interruptible_api_call的流式变体。
+
+        处理所有三个api_mode：
+        -chat_complements：在OpenAI兼容的端点上，stream=True
+        -anthropic_messages:client.messages.stream（）通过anthropic SDK
+        -codex_responses：委托给_run_codex_stream（已流式传输）
+
+        为每个文本标记触发stream_delta_callback和_stream_callback。
+        工具调用回合抑制回调——仅文本最终响应
+        流到消费者。返回一个模仿
+        非流式响应形状，因此代理循环的其余部分保持不变。
+
+        在提供程序错误指示时，回退到_interruptible_api_call
+        不支持流媒体。
         """
         if self.api_mode == "codex_responses":
             # Codex streams internally via _run_codex_stream. The main dispatch
             # in _interruptible_api_call already calls it; we just need to
             # ensure on_first_delta reaches it. Store it on the instance
             # temporarily so _run_codex_stream can pick it up.
+            # Codex流通过_run_Codex_stream在内部传输。主要调度
+            # ininterruptible_api_call已经调用了它；我们只需要
+            # 确保on_first_delta达到它。将其存储在实例上
+            # 暂时让rundexstream可以接收它。
             self._codex_on_first_delta = on_first_delta
             try:
                 return self._interruptible_api_call(api_kwargs)
@@ -6182,6 +6392,7 @@ class AIAgent:
 
         # Bedrock Converse uses boto3's converse_stream() with real-time delta
         # callbacks — same UX as Anthropic and chat_completions streaming.
+        # Bedrock Converse使用boto3的Converse_stream（）和实时增量回调，与Anthropic和chat_coompletions流媒体具有相同的用户体验。
         if self.api_mode == "bedrock_converse":
             result = {"response": None, "error": None}
             first_delta_fired = {"done": False}
@@ -6246,6 +6457,10 @@ class AIAgent:
         # Wall-clock timestamp of the last real streaming chunk.  The outer
         # poll loop uses this to detect stale connections that keep receiving
         # SSE keep-alive pings but no actual data.
+        # 跟踪是否触发了任何增量（用于回退）
+        # 最后一个真实流数据块的挂钟时间戳。外表
+        # 轮询循环使用此功能来检测持续接收的过时连接
+        # SSE保持ping有效，但没有实际数据。
         last_chunk_time = {"t": time.time()}
 
         def _fire_first_delta():
@@ -6258,6 +6473,7 @@ class AIAgent:
 
         def _call_chat_completions():
             """Stream a chat completions response."""
+            """流式传输聊天完成响应。"""
             import httpx as _httpx
             _base_timeout = float(os.getenv("HERMES_API_TIMEOUT", 1800.0))
             _stream_read_timeout = float(os.getenv("HERMES_STREAM_READ_TIMEOUT", 120.0))
@@ -6265,6 +6481,10 @@ class AIAgent:
             # prefill on large contexts before producing the first token.
             # Auto-increase the httpx read timeout unless the user explicitly
             # overrode HERMES_STREAM_READ_TIMEOUT.
+            # 本地供应商（Ollama、llama.cpp、vLLM）可能需要几分钟的时间
+            # 在生成第一个令牌之前，对大型上下文进行预填充。
+            # 自动增加httpx读取超时，除非用户明确
+            # 覆盖HERMES_STREAM_READ_TIMEOUT。
             if _stream_read_timeout == 120.0 and self.base_url and is_local_endpoint(self.base_url):
                 _stream_read_timeout = _base_timeout
                 logger.debug(
@@ -6287,6 +6507,7 @@ class AIAgent:
             )
             # Reset stale-stream timer so the detector measures from this
             # attempt's start, not a previous attempt's last chunk.
+            # 重置过时流计时器，以便检测器从本次尝试开始测量，而不是从上次尝试的最后一个块开始测量。
             last_chunk_time["t"] = time.time()
             self._touch_activity("waiting for provider response (streaming)")
             stream = request_client_holder["client"].chat.completions.create(**stream_kwargs)
@@ -6294,6 +6515,9 @@ class AIAgent:
             # Capture rate limit headers from the initial HTTP response.
             # The OpenAI SDK Stream object exposes the underlying httpx
             # response via .response before any chunks are consumed.
+            # 从初始HTTP响应中捕获速率限制标头。
+            # OpenAI SDK Stream对象公开了底层httpx
+            # 在消耗任何块之前，通过response进行响应。
             self._capture_rate_limits(getattr(stream, "response", None))
 
             content_parts: list = []
@@ -6321,6 +6545,7 @@ class AIAgent:
                     if hasattr(chunk, "model") and chunk.model:
                         model_name = chunk.model
                     # Usage comes in the final chunk with empty choices
+                    # 用法出现在最后一块，选项为空
                     if hasattr(chunk, "usage") and chunk.usage:
                         usage_obj = chunk.usage
                     continue
@@ -6330,6 +6555,7 @@ class AIAgent:
                     model_name = chunk.model
 
                 # Accumulate reasoning content
+                # 积累推理内容
                 reasoning_text = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
                 if reasoning_text:
                     reasoning_parts.append(reasoning_text)
@@ -6337,6 +6563,7 @@ class AIAgent:
                     self._fire_reasoning_delta(reasoning_text)
 
                 # Accumulate text content — fire callback only when no tool calls
+                # 累积文本内容——仅在没有工具调用时触发回调
                 if delta and delta.content:
                     content_parts.append(delta.content)
                     if not tool_calls_acc:
@@ -6355,6 +6582,17 @@ class AIAgent:
                         # reasoning display.  Non-reasoning text is harmlessly
                         # suppressed by the CLI's _stream_delta when the stream
                         # box is already closed (tool boundary flush).
+                        # 工具调用会抑制常规内容流（避免
+                        # 在旁边显示健谈的“我将使用该工具…”文本
+                        # 工具调用）。但推理标签嵌入抑制
+                        # 内容仍应到达显示器，否则
+                        # 推理框仅显示为响应后回退，
+                        # 在已经流式传输后，它变得令人困惑
+                        # 回应。通过流路由抑制的内容
+                        # delta回调，因此其标签提取可以触发
+                        # 推理显示。非推理文本是无害的
+                        # 当流被CLI的_stream_delta抑制时
+                        # 框已关闭（工具边界齐平）。
                         if self.stream_delta_callback:
                             try:
                                 self.stream_delta_callback(delta.content)
@@ -6363,6 +6601,7 @@ class AIAgent:
                                 pass
 
                 # Accumulate tool call deltas — notify display on first name
+                # 累积工具调用增量——在名字上显示通知
                 if delta and delta.tool_calls:
                     for tc_delta in delta.tool_calls:
                         raw_idx = tc_delta.index if tc_delta.index is not None else 0
@@ -6370,6 +6609,7 @@ class AIAgent:
 
                         # Ollama fix: detect a new tool call reusing the same
                         # raw index (different id) and redirect to a fresh slot.
+                        # Ollama修复：检测重用相同原始索引（不同id）的新工具调用，并重定向到新插槽。
                         if raw_idx not in _active_slot_by_idx:
                             _active_slot_by_idx[raw_idx] = raw_idx
                         if (
@@ -6406,6 +6646,7 @@ class AIAgent:
                                 extra = extra.model_dump()
                             entry["extra_content"] = extra
                         # Fire once per tool when the full name is available
+                        # 当全名可用时，每个工具点火一次
                         name = entry["function"]["name"]
                         if name and idx not in tool_gen_notified:
                             tool_gen_notified.add(idx)
@@ -6420,6 +6661,7 @@ class AIAgent:
                     usage_obj = chunk.usage
 
             # Build mock response matching non-streaming shape
+            # 构建与非流式形状匹配的模拟响应
             full_content = "".join(content_parts) or None
             mock_tool_calls = None
             has_truncated_tool_args = False
@@ -6448,6 +6690,7 @@ class AIAgent:
                 effective_finish_reason = "length"
 
             full_reasoning = "".join(reasoning_parts) or None
+            # mock消息-简单的命名空间
             mock_message = SimpleNamespace(
                 role=role,
                 content=full_content,
@@ -6473,6 +6716,13 @@ class AIAgent:
             the native Anthropic Message object from get_final_message() so
             the rest of the agent loop (validation, tool extraction, etc.)
             works unchanged.
+
+            流式传输人类消息API响应。
+
+            触发delta回调以进行实时令牌传递，但返回
+            get_final_Message（）中的原生Anthropic Message对象
+            代理循环的其余部分（验证、工具提取等）
+            工作不变。
             """
             has_tool_use = False
 
@@ -6799,6 +7049,7 @@ class AIAgent:
         return result["response"]
 
     # ── Provider fallback ──────────────────────────────────────────────────
+    # 提供回滚
 
     def _try_activate_fallback(self) -> bool:
         """Switch to the next fallback model/provider in the chain.
@@ -6820,10 +7071,12 @@ class AIAgent:
         fb_provider = (fb.get("provider") or "").strip().lower()
         fb_model = (fb.get("model") or "").strip()
         if not fb_provider or not fb_model:
-            return self._try_activate_fallback()  # skip invalid, try next
+            return self._try_activate_fallback()  # skip invalid, try next 跳过无效，请尝试下一步
 
         # Use centralized router for client construction.
+        # 使用集中式路由器进行客户端建设。
         # raw_codex=True because the main agent needs direct responses.stream()
+        # raw_codex=True，因为主代理需要直接responses.stream（）
         # access for Codex providers.
         try:
             from agent.auxiliary_client import resolve_provider_client
@@ -6912,6 +7165,7 @@ class AIAgent:
                 }
 
             # Re-evaluate prompt caching for the new provider/model
+            # 重新评估新提供程序/模型的提示缓存
             is_native_anthropic = fb_api_mode == "anthropic_messages" and fb_provider == "anthropic"
             self._use_prompt_caching = (
                 ("openrouter" in fb_base_url.lower() and "claude" in fb_model.lower())
@@ -6922,6 +7176,10 @@ class AIAgent:
             # Without this, compression decisions use the primary model's
             # context window (e.g. 200K) instead of the fallback's (e.g. 32K),
             # causing oversized sessions to overflow the fallback.
+            # 更新回退模型的上下文压缩器限制。
+            # 如果没有这个，压缩决策将使用主模型
+            # 上下文窗口（例如200K）而不是回退窗口（例如32K），
+            # 导致超大会话溢出回退。
             if hasattr(self, 'context_compressor') and self.context_compressor:
                 from agent.model_metadata import get_model_context_length
                 fb_context_length = get_model_context_length(
@@ -6950,6 +7208,7 @@ class AIAgent:
             return self._try_activate_fallback()  # try next in chain
 
     # ── Per-turn primary restoration ─────────────────────────────────────
+    # 每回合主要恢复
 
     def _restore_primary_runtime(self) -> bool:
         """Restore the primary runtime at the start of a new turn.
@@ -7024,6 +7283,7 @@ class AIAgent:
         "APIConnectionError", "APITimeoutError",
     })
 
+    # 尝试恢复主传输
     def _try_recover_primary_transport(
         self, api_error: Exception, *, retry_count: int, max_retries: int,
     ) -> bool:
@@ -7038,6 +7298,18 @@ class AIAgent:
         Skipped for proxy/aggregator providers (OpenRouter, Nous) which
         already manage connection pools and retries server-side — if our
         retries through them are exhausted, one more rebuilt client won't help.
+
+        尝试一个额外的主提供程序恢复周期，以应对暂时的传输故障。
+
+        在“max_retrys”耗尽后，重建主客户端（清除
+        过时的连接池），并在失败前再试一次
+        < 返回这对于直接端点（自定义、Z.AI等）最有用，
+        Anthropic、OpenAI、本地模型），其中TCP级别的故障不会发生
+        意味着提供商宕机了。
+
+        跳过代理/聚合器提供商（OpenRouter、Nous）
+        已经管理连接池并在服务器端重试——如果我们
+        通过它们进行的重试已用尽，再重建一个客户端将无济于事。
         """
         if self._fallback_activated:
             return False
@@ -7101,8 +7373,9 @@ class AIAgent:
             logging.warning("Primary transport recovery failed: %s", e)
             return False
 
-    # ── End provider fallback ──────────────────────────────────────────────
+    # ── End provider fallback 终端提供商回退 ──────────────────────────────────────────────
 
+    # 内容包含图像部分
     @staticmethod
     def _content_has_image_parts(content: Any) -> bool:
         if not isinstance(content, list):
@@ -7632,12 +7905,20 @@ class AIAgent:
 
         return api_kwargs
 
+    # 支持额外的推理部分
     def _supports_reasoning_extra_body(self) -> bool:
         """Return True when reasoning extra_body is safe to send for this route/model.
 
         OpenRouter forwards unknown extra_body fields to upstream providers.
         Some providers/routes reject `reasoning` with 400s, so gate it to
         known reasoning-capable model families and direct Nous Portal.
+        """
+        """
+        当推理extra_body可以安全地发送此路由/模型时，返回True。
+
+        OpenRouter将未知的extra_body字段转发给上游提供商。
+        一些提供商/路由拒绝使用400进行“推理”，因此将其设置为
+        已知的具有推理能力的模型家族和直接Nous Portal。
         """
         if "nousresearch" in self._base_url_lower:
             return True
@@ -7704,12 +7985,19 @@ class AIAgent:
         Handles reasoning extraction, reasoning_details, and optional tool_calls
         so both the tool-call path and the final-response path share one builder.
         """
+        """
+        根据API响应消息构建规范化的辅助消息dict。
+
+        处理推理提取、推理细节和可选工具调用
+        因此，工具调用路径和最终响应路径共享一个构建器。
+        """
         reasoning_text = self._extract_reasoning(assistant_message)
         _from_structured = bool(reasoning_text)
 
         # Fallback: extract inline <think> blocks from content when no structured
         # reasoning fields are present (some models/providers embed thinking
         # directly in the content rather than returning separate API fields).
+        # 回退：当不存在结构化推理字段时，从内容中提取内联<think>块（一些模型/提供者直接在内容中嵌入思考，而不是返回单独的API字段）。
         if not reasoning_text:
             content = assistant_message.content or ""
             think_blocks = re.findall(r'<think>(.*?)</think>', content, flags=re.DOTALL)
@@ -7729,6 +8017,14 @@ class AIAgent:
             # (gateway, batch, quiet) still get reasoning.
             # Any reasoning that wasn't shown during streaming is caught by the
             # CLI post-response display fallback (cli.py _reasoning_shown_this_turn).
+            # 当流媒体处于活动状态时跳过回调——推理已经完成
+            # 在流期间通过两条路径之一显示：
+            #（a）_fire_reasoning_delta（结构化推理内容增量）
+            #（b）_stream_delta标签提取（<思考>/<推理_SCRATCHPAD>）
+            # 当流媒体未处于活动状态时，始终启动非流媒体模式
+            #（网关、批处理、安静）仍然可以推理。
+            # 任何在流媒体播放过程中未显示的推理都会被捕获
+            # CLI响应后显示回退（CLI.py _reasoning_shown_this_turn）。
             if not self.stream_delta_callback:
                 try:
                     self.reasoning_callback(reasoning_text)
@@ -7737,6 +8033,7 @@ class AIAgent:
 
         # Sanitize surrogates from API response — some models (e.g. Kimi/GLM via Ollama)
         # can return invalid surrogate code points that crash json.dumps() on persist.
+        # 从API响应中消除代理-某些模型（例如Kimi/GLM通过Ollama）可能会返回无效的代理代码点，导致json.dumps（）在持久化时崩溃。
         _raw_content = assistant_message.content or ""
         _san_content = _sanitize_surrogates(_raw_content)
         if reasoning_text:
@@ -7754,6 +8051,7 @@ class AIAgent:
             # Anthropic, OpenAI) can maintain reasoning continuity across turns.
             # Each provider may include opaque fields (signature, encrypted_content)
             # that must be preserved exactly.
+            # 未经修改地返回Pass reasoning_delays，以便提供者（OpenRouter、Anthropic、OpenAI）可以在各个回合中保持推理的连续性。每个提供程序都可能包含必须完全保留的不透明字段（签名、加密内容）。
             raw_details = assistant_message.reasoning_details
             preserved = []
             for d in raw_details:
@@ -7768,6 +8066,7 @@ class AIAgent:
 
         # Codex Responses API: preserve encrypted reasoning items for
         # multi-turn continuity. These get replayed as input on the next turn.
+        # Codex Responses API：保留加密的推理项以实现多回转连续性。这些将在下一回合作为输入回放。
         codex_items = getattr(assistant_message, "codex_reasoning_items", None)
         if codex_items:
             msg["codex_reasoning_items"] = codex_items
@@ -7813,6 +8112,7 @@ class AIAgent:
                 # Preserve extra_content (e.g. Gemini thought_signature) so it
                 # is sent back on subsequent API calls.  Without this, Gemini 3
                 # thinking models reject the request with a 400 error.
+                # 保留额外的内容（例如Gemini的思想签名）在随后的API调用中发送回。如果没有这个，Gemini 3 思维模型以400的错误拒绝了请求。
                 extra = getattr(tool_call, "extra_content", None)
                 if extra is not None:
                     if hasattr(extra, "model_dump"):
@@ -7823,6 +8123,7 @@ class AIAgent:
 
         return msg
 
+    # 为严格api审查工具调用
     @staticmethod
     def _sanitize_tool_calls_for_strict_api(api_msg: dict) -> dict:
         """Strip Codex Responses API fields from tool_calls for strict providers.
@@ -7839,6 +8140,20 @@ class AIAgent:
         Codex provider later).
 
         Fields stripped: call_id, response_item_id
+        从严格提供程序的tool_calls中剥离Codex Responses API字段。
+
+        Mistral、Fireworks和其他严格兼容OpenAI的API等提供商
+        验证聊天完成模式并拒绝未知字段（call_id，
+        response_item_id），有400或422个错误。这些字段保存在
+        内部消息历史记录--此方法仅修改传出消息
+        API副本。
+
+        创建新的tool_call字典，而不是原地突变，因此
+        原始消息列表保留Codex的call_id/response_item_id
+        响应API兼容性（例如，如果会话回退到
+        稍后提供食品法典委员会）。
+
+        已删除的字段：call_id、response_item_id
         """
         tool_calls = api_msg.get("tool_calls")
         if not isinstance(tool_calls, list):
@@ -7861,9 +8176,20 @@ class AIAgent:
 
         Returns:
             bool: True if sanitization is needed (non-Codex API), False otherwise.
+
+        确定tool_calls是否需要对严格的API进行清理。
+
+        Codex响应API使用call_id和response_item_id等字段
+        这些不是标准聊天完成模式的一部分。这些
+        在调用任何其他API时必须剥离字段，以避免
+        验证错误（400错误请求）。
+
+        返回：
+        bool：如果需要净化（非Codex API），则为True，否则为False。
         """
         return self.api_mode != "codex_responses"
 
+    # 刷新记忆
     def flush_memories(self, messages: list = None, min_turns: int = None):
         """Give the model one turn to persist memories before context is lost.
 
@@ -7877,6 +8203,20 @@ class AIAgent:
             min_turns: Minimum user turns required to trigger the flush.
                        None = use config value (flush_min_turns).
                        0 = always flush (used for compression).
+        """
+        """
+        在上下文丢失之前，给模型一个机会来保存记忆。
+
+        在压缩、会话重置或CLI退出之前调用。注入冲洗液
+        消息，进行一个API调用，执行任何内存工具调用，然后
+        从消息列表中删除所有刷新工件。
+
+        Args：
+        messages：当前对话消息。如果无，则使用
+        自我。_session_messages（上次运行对话状态）。
+        min_turns：触发冲水所需的最小用户转数。
+        无=使用配置值（flush_min_turns）。
+        0=始终冲洗（用于压缩）。
         """
         if self._memory_flush_min_turns == 0 and min_turns is None:
             return
@@ -7892,9 +8232,9 @@ class AIAgent:
             return
 
         flush_content = (
-            "[System: The session is being compressed. "
-            "Save anything worth remembering — prioritize user preferences, "
-            "corrections, and recurring patterns over task-specific details.]"
+            "[System: The session is being compressed. " # 系统: 此会话正在被压缩
+            "Save anything worth remembering — prioritize user preferences, " # 保存任何值得记住的内容——优先考虑用户偏好，
+            "corrections, and recurring patterns over task-specific details.]" # 用于在任务特定细节上显示错误、更正和重复模式。
         )
         _sentinel = f"__flush_{id(self)}_{time.monotonic()}"
         flush_msg = {"role": "user", "content": flush_content, "_flush_sentinel": _sentinel}
@@ -7922,6 +8262,7 @@ class AIAgent:
                 api_messages = [{"role": "system", "content": self._cached_system_prompt}] + api_messages
 
             # Make one API call with only the memory tool available
+            # 只使用可用的内存工具进行一次API调用
             memory_tool_def = None
             for t in (self.tools or []):
                 if t.get("function", {}).get("name") == "memory":
@@ -7934,6 +8275,7 @@ class AIAgent:
 
             # Use auxiliary client for the flush call when available --
             # it's cheaper and avoids Codex Responses API incompatibility.
+            # 使用辅助客户端进行flush调用（如果可用）--它更便宜，并避免了Codex Responses API不兼容。
             from agent.auxiliary_client import call_llm as _call_llm
             _aux_available = True
             try:
@@ -7944,6 +8286,7 @@ class AIAgent:
                     temperature=0.3,
                     max_tokens=5120,
                     # timeout resolved from auxiliary.flush_memories.timeout config
+                    # 通过auxiliary.flush_memories.timeout配置解决超时问题
                 )
             except RuntimeError:
                 _aux_available = False
@@ -8036,6 +8379,17 @@ class AIAgent:
         Returns:
             (compressed_messages, new_system_prompt) tuple
         """
+        """
+        在SQLite中压缩对话上下文并拆分会话。
+
+        Args：
+        focus_topic：用于引导压缩的可选焦点字符串
+        摘要将优先保留与以下内容相关的信息
+        这个话题。灵感来自Claude Code的“/compact<focus>”。
+
+        返回：
+        （压缩消息，new_system_prompt）元组
+        """
         _pre_msg_count = len(messages)
         logger.info(
             "context compression started: session=%s messages=%d tokens=~%s model=%s focus=%r",
@@ -8066,13 +8420,16 @@ class AIAgent:
         if self._session_db:
             try:
                 # Propagate title to the new session with auto-numbering
+                # 通过自动编号将标题传播到新会话
                 old_title = self._session_db.get_session_title(self.session_id)
                 # Trigger memory extraction on the old session before it rotates.
+                # 在旧会话旋转之前触发其内存提取。
                 self.commit_memory_session(messages)
                 self._session_db.end_session(self.session_id, "compression")
                 old_session_id = self.session_id
                 self.session_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
                 # Update session_log_file to point to the new session's JSON file
+                # 更新session_log_file以指向新会话的JSON文件
                 self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
                 self._session_db.create_session(
                     session_id=self.session_id,
@@ -8081,6 +8438,7 @@ class AIAgent:
                     parent_session_id=old_session_id,
                 )
                 # Auto-number the title for the continuation session
+                # 自动为延续会话的标题编号
                 if old_title:
                     try:
                         new_title = self._session_db.get_next_title_in_lineage(old_title)
@@ -8089,11 +8447,13 @@ class AIAgent:
                         logger.debug("Could not propagate title on compression: %s", e)
                 self._session_db.update_system_prompt(self.session_id, new_system_prompt)
                 # Reset flush cursor — new session starts with no messages written
+                # 重置刷新光标--新会话开始时没有写入任何消息
                 self._last_flushed_db_idx = 0
             except Exception as e:
                 logger.warning("Session DB compression split failed — new session will NOT be indexed: %s", e)
 
         # Warn on repeated compressions (quality degrades with each pass)
+        # 反复按压时发出警告（每次按压质量都会下降）
         _cc = self.context_compressor.compression_count
         if _cc >= 2:
             self._vprint(
@@ -8104,6 +8464,7 @@ class AIAgent:
 
         # Update token estimate after compaction so pressure calculations
         # use the post-compression count, not the stale pre-compression one.
+        # 在压实后更新令牌估计值，以便压力计算使用压缩后计数，而不是过时的压缩前计数。
         _compressed_est = (
             estimate_tokens_rough(new_system_prompt)
             + estimate_messages_tokens_rough(compressed)
@@ -8114,6 +8475,7 @@ class AIAgent:
         # Clear the file-read dedup cache.  After compression the original
         # read content is summarised away — if the model re-reads the same
         # file it needs the full content, not a "file unchanged" stub.
+        # 清除文件读取数据消除缓存。压缩后，原始读取的内容会被汇总掉——如果模型重新读取同一个文件，它需要的是完整的内容，而不是“文件不变”的存根。
         try:
             from tools.file_tools import reset_file_dedup
             reset_file_dedup(task_id)
@@ -8127,6 +8489,7 @@ class AIAgent:
         )
         return compressed, new_system_prompt
 
+    # 执行工具调用
     def _execute_tool_calls(self, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0) -> None:
         """Execute tool calls from the assistant message and append results to messages.
 
@@ -8134,9 +8497,17 @@ class AIAgent:
         independent: read-only tools may always share the parallel path, while
         file reads/writes may do so only when their target paths do not overlap.
         """
+        """
+        执行助手消息中的工具调用，并将结果附加到消息中。
+
+        仅对看起来像这样的批处理进行并发执行调度
+        独立：只读工具可能始终共享并行路径，而
+        文件读/写只能在其目标路径不重叠时进行。
+        """
         tool_calls = assistant_message.tool_calls
 
         # Allow _vprint during tool execution even with stream consumers
+        # 即使使用流消费者，也允许在工具执行期间使用_vprint
         self._executing_tools = True
         try:
             if not _should_parallelize_tool_batch(tool_calls):
@@ -8158,7 +8529,15 @@ class AIAgent:
         tools. Used by the concurrent execution path; the sequential path retains
         its own inline invocation for backward-compatible display handling.
         """
+        """
+        调用单个工具并返回结果字符串。没有显示逻辑。
+
+        处理代理级工具（todo、内存等）和注册表调度
+        工具。由并发执行路径使用；顺序路径保持不变
+        它自己的内联调用，用于向后兼容的显示处理。
+        """
         # Check plugin hooks for a block directive before executing anything.
+        # 在执行任何操作之前，请检查插件挂钩中的块指令。
         block_message: Optional[str] = None
         try:
             from hermes_cli.plugins import get_pre_tool_call_block_message
@@ -8199,6 +8578,7 @@ class AIAgent:
                 store=self._memory_store,
             )
             # Bridge: notify external memory provider of built-in memory writes
+            # 桥接：通知外部内存提供程序内置内存写入
             if self._memory_manager and function_args.get("action") in ("add", "replace"):
                 try:
                     self._memory_manager.on_memory_write(
@@ -8210,6 +8590,7 @@ class AIAgent:
                     pass
             return result
         elif self._memory_manager and self._memory_manager.has_tool(function_name):
+            # 处理工具调用
             return self._memory_manager.handle_tool_call(function_name, function_args)
         elif function_name == "clarify":
             from tools.clarify_tool import clarify_tool as _clarify_tool
@@ -8246,6 +8627,14 @@ class AIAgent:
         Returns a ready-to-print string with *label* on the first line and
         continuation lines indented.
         """
+        """
+        Word包装详细工具输出以适应终端宽度。
+
+        在现有新行上拆分*text*，并单独包装每一行，
+        保留有意的换行符（例如打印精美的JSON）。
+        返回第一行带有*label*的可打印字符串
+        连续行缩进。
+        """
         import shutil as _shutil
         import textwrap as _tw
         cols = _shutil.get_terminal_size((120, 24)).columns
@@ -8262,16 +8651,24 @@ class AIAgent:
         body = ("\n" + indent).join(out_lines)
         return f"{indent}{label}{body}"
 
+    # 并发调用工具
     def _execute_tool_calls_concurrent(self, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0) -> None:
         """Execute multiple tool calls concurrently using a thread pool.
 
         Results are collected in the original tool-call order and appended to
         messages so the API sees them in the expected sequence.
         """
+        """
+        使用线程池并发执行多个工具调用。
+
+        结果按原始工具调用顺序收集并附加到
+        消息，以便API在预期的序列中看到它们。
+        """
         tool_calls = assistant_message.tool_calls
         num_tools = len(tool_calls)
 
         # ── Pre-flight: interrupt check ──────────────────────────────────
+        # -- 飞行前：中断检查 ──────────────────────────────────
         if self._interrupt_requested:
             print(f"{self.log_prefix}⚡ Interrupt: skipping {num_tools} tool call(s)")
             for tc in tool_calls:
@@ -8283,11 +8680,13 @@ class AIAgent:
             return
 
         # ── Parse args + pre-execution bookkeeping ───────────────────────
+        # -- 解析参数 + 执行前的簿记 ───────────────────────
         parsed_calls = []  # list of (tool_call, function_name, function_args)
         for tool_call in tool_calls:
             function_name = tool_call.function.name
 
             # Reset nudge counters
+            # 重置微调计数器
             if function_name == "memory":
                 self._turns_since_memory = 0
             elif function_name == "skill_manage":
@@ -8301,6 +8700,7 @@ class AIAgent:
                 function_args = {}
 
             # Checkpoint for file-mutating tools
+            # 文件变异工具的检查点
             if function_name in ("write_file", "patch") and self._checkpoint_mgr.enabled:
                 try:
                     file_path = function_args.get("path", "")
@@ -8311,6 +8711,7 @@ class AIAgent:
                     pass
 
             # Checkpoint before destructive terminal commands
+            # 破坏性终端命令前的检查点
             if function_name == "terminal" and self._checkpoint_mgr.enabled:
                 try:
                     cmd = function_args.get("command", "")
@@ -8353,20 +8754,25 @@ class AIAgent:
                     logging.debug(f"Tool start callback error: {cb_err}")
 
         # ── Concurrent execution ─────────────────────────────────────────
+        # -- 并发执行 ─────────────────────────────────────────
         # Each slot holds (function_name, function_args, function_result, duration, error_flag)
+        # 每个插槽都有（function_name、function_args、function_result、duration、error_flag）
         results = [None] * num_tools
 
         # Touch activity before launching workers so the gateway knows
         # we're executing tools (not stuck).
+        # 在启动workers之前触摸活动，这样网关就知道我们正在执行工具（而不是卡住）。
         self._current_tool = tool_names_str
         self._touch_activity(f"executing {num_tools} tools concurrently: {tool_names_str}")
 
         def _run_tool(index, tool_call, function_name, function_args):
             """Worker function executed in a thread."""
+            """在线程中执行的Worker函数。"""
             # Set the activity callback on THIS worker thread so
             # _wait_for_process (terminal commands) can fire heartbeats.
             # The callback is thread-local; the main thread's callback
             # is invisible to worker threads.
+            # 在THIS工作线程上设置活动回调，以便_wait_for_process（终端命令）可以触发心跳。回调是线程本地的；主线程的回调对工作线程不可见。
             try:
                 from tools.environments.base import set_activity_callback
                 set_activity_callback(self._touch_activity)
@@ -8387,6 +8793,7 @@ class AIAgent:
             results[index] = (function_name, function_args, result, duration, is_error)
 
         # Start spinner for CLI mode (skip when TUI handles tool progress)
+        # 启动CLI模式的微调器（TUI处理工具进度时跳过）
         spinner = None
         if self._should_emit_quiet_tool_messages() and self._should_start_quiet_spinner():
             face = random.choice(KawaiiSpinner.get_waiting_faces())
@@ -8529,6 +8936,7 @@ class AIAgent:
             turn_tool_msgs = messages[-num_tools:]
             enforce_turn_budget(turn_tool_msgs, env=get_active_env(effective_task_id))
 
+    # 串行执行工具调用
     def _execute_tool_calls_sequential(self, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0) -> None:
         """Execute tool calls sequentially (original behavior). Used for single calls or interactive tools."""
         for i, tool_call in enumerate(assistant_message.tool_calls, 1):
@@ -8596,6 +9004,7 @@ class AIAgent:
             # Set activity callback for long-running tool execution (terminal
             # commands, etc.) so the gateway's inactivity monitor doesn't kill
             # the agent while a command is running.
+            # 为长时间运行的工具执行（终端命令等）设置活动回调，这样网关的不活动监视器在命令运行时不会杀死代理。
             if _block_msg is None:
                 try:
                     from tools.environments.base import set_activity_callback
@@ -8682,6 +9091,7 @@ class AIAgent:
                     store=self._memory_store,
                 )
                 # Bridge: notify external memory provider of built-in memory writes
+                # 桥接：通知外部内存提供程序内置内存写入
                 if self._memory_manager and function_args.get("action") in ("add", "replace"):
                     try:
                         self._memory_manager.on_memory_write(
@@ -8763,6 +9173,7 @@ class AIAgent:
             elif self._memory_manager and self._memory_manager.has_tool(function_name):
                 # Memory provider tools (hindsight_retain, honcho_search, etc.)
                 # These are not in the tool registry — route through MemoryManager.
+                # 内存提供程序工具（hindsights_retain、honcho_search等）这些不在工具注册表中——通过MemoryManager路由。
                 spinner = None
                 if self._should_emit_quiet_tool_messages() and self._should_start_quiet_spinner():
                     face = random.choice(KawaiiSpinner.get_waiting_faces())
@@ -8868,6 +9279,7 @@ class AIAgent:
             )
 
             # Discover subdirectory context files from tool arguments
+            # 从工具参数中发现子目录上下文文件
             subdir_hints = self._subdirectory_hints.check_tool_call(function_name, function_args)
             if subdir_hints:
                 function_result += subdir_hints
@@ -8912,6 +9324,7 @@ class AIAgent:
 
     def _handle_max_iterations(self, messages: list, api_call_count: int) -> str:
         """Request a summary when max iterations are reached. Returns the final response text."""
+        """当达到最大迭代次数时请求摘要。返回最终响应文本。"""
         print(f"⚠️  Reached maximum iterations ({self.max_iterations}). Requesting summary...")
 
         summary_request = (
@@ -8919,11 +9332,17 @@ class AIAgent:
             "Please provide a final response summarizing what you've found and accomplished so far, "
             "without calling any more tools."
         )
+        """
+        “您已达到允许的最大工具调用迭代次数。”
+        “请提供一份最终回复，总结您迄今为止的发现和成就，”
+        “不用再调用任何工具。”
+        """
         messages.append({"role": "user", "content": summary_request})
 
         try:
             # Build API messages, stripping internal-only fields
             # (finish_reason, reasoning) that strict APIs like Mistral reject with 422
+            # 构建API消息，以422剥离Mistral等严格API拒绝的内部字段（finish_reason，推理）
             _needs_sanitize = self._should_sanitize_tool_calls()
             api_messages = []
             for msg in messages:
