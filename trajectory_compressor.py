@@ -29,6 +29,34 @@ Usage:
     # Compress 10% sample from a directory
     python trajectory_compressor.py --input=data/my_run --sample_percent=10
 """
+"""
+# 轨迹压缩器
+对已完成的智能体轨迹进行后处理，在目标令牌预算内压缩轨迹，同时保留训练信号质量。
+
+## 压缩策略：
+1. 保护起始对话轮次（系统指令、用户输入、首次GPT响应、首次工具调用）
+2. 保护最后N轮对话（最终操作与结论）
+3. 仅压缩**中间轮次**，从第二次工具响应开始压缩
+4. 仅执行满足目标令牌限制所需的最小压缩量
+5. 用单条用户总结消息替换被压缩区域
+6. 保留剩余工具调用完整（模型在总结后继续正常执行）
+
+## 使用方法：
+    # 压缩目录下的所有JSONL文件
+    python trajectory_compressor.py --input=data/my_run
+    
+    # 压缩单个JSONL文件
+    python trajectory_compressor.py --input=data/trajectories.jsonl
+    
+    # 压缩文件中15%的样本数据
+    python trajectory_compressor.py --input=data/trajectories.jsonl --sample_percent=15
+    
+    # 自定义输出路径与目标令牌数进行压缩
+    python trajectory_compressor.py --input=data/trajectories.jsonl --output=compressed.jsonl --target_max_tokens=16000
+    
+    # 压缩目录中10%的样本数据
+    python trajectory_compressor.py --input=data/my_run --sample_percent=10
+"""
 
 import json
 import os

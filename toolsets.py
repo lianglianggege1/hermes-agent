@@ -22,12 +22,37 @@ Usage:
     # Resolve a toolset to get all tool names (including from composed toolsets)
     all_tools = resolve_toolset("full_stack")
 """
+"""
+工具集模块
+
+该模块提供了一套灵活的系统，用于定义和管理工具别名 / 工具集。
+工具集支持将工具按特定场景分组，可由单个工具或其他工具集组合构成。
+
+特性
+- 定义包含指定工具的自定义工具集
+- 基于其他工具集组合生成新工具集
+- 内置适用于典型场景的通用工具集
+- 易于扩展新增工具集
+- 支持动态工具集解析
+
+使用方法
+
+from toolsets import get_toolset, resolve_toolset, get_all_toolsets
+
+# 获取指定工具集的工具
+tools = get_toolset("research")
+
+# 解析工具集，获取全部工具名称（包含组合自其他工具集的工具）
+all_tools = resolve_toolset("full_stack")
+"""
 
 from typing import List, Dict, Any, Set, Optional
 
 
 # Shared tool list for CLI and all messaging platform toolsets.
+# CLI 及所有消息平台工具集的共享工具列表
 # Edit this once to update all platforms simultaneously.
+# 编辑一次，即可同步更新所有平台。
 _HERMES_CORE_TOOLS = [
     # Web
     "web_search", "web_extract",
@@ -50,21 +75,21 @@ _HERMES_CORE_TOOLS = [
     "todo", "memory",
     # Session history search
     "session_search",
-    # Clarifying questions
+    # Clarifying questions 澄清性问题
     "clarify",
-    # Code execution + delegation
+    # Code execution + delegation 代码执行 和 委托计划
     "execute_code", "delegate_task",
-    # Cronjob management
+    # Cronjob management 定时任务管理
     "cronjob",
-    # Cross-platform messaging (gated on gateway running via check_fn)
+    # Cross-platform messaging (gated on gateway running via check_fn) 跨平台消息传递（通过检查函数校验网关运行状态作为准入条件）
     "send_message",
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
     "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
 ]
 
 
-# Core toolset definitions
-# These can include individual tools or reference other toolsets
+# Core toolset definitions 核心工具集定义
+# These can include individual tools or reference other toolsets 这些可包含独立工具或引用其他工具集
 TOOLSETS = {
     # Basic toolsets - individual tool categories
     "web": {
@@ -97,18 +122,21 @@ TOOLSETS = {
         "includes": []
     },
     
+    # 高级推理与问题求解工具
     "moa": {
         "description": "Advanced reasoning and problem-solving tools",
         "tools": ["mixture_of_agents"],
         "includes": []
     },
     
+    # 访问、创建、编辑和管理包含专属指引与知识的技能文档
     "skills": {
         "description": "Access, create, edit, and manage skill documents with specialized instructions and knowledge",
         "tools": ["skills_list", "skill_view", "skill_manage"],
         "includes": []
     },
     
+    # 用于网页交互的浏览器自动化（导航、点击、输入、滚动、内嵌框架、长按点击），并可通过网页搜索查找链接地址
     "browser": {
         "description": "Browser automation for web interaction (navigate, click, type, scroll, iframes, hold-click) with web search for finding URLs",
         "tools": [
@@ -132,6 +160,7 @@ TOOLSETS = {
         "includes": []
     },
     
+    # 用于在 Tinker-Atropos 上运行强化学习的 RL 训练工具
     "rl": {
         "description": "RL training tools for running reinforcement learning on Tinker-Atropos",
         "tools": [
@@ -144,48 +173,56 @@ TOOLSETS = {
         "includes": []
     },
     
+    # 文件操作工具：读取、写入、修补（模糊匹配）及搜索（内容+文件）
     "file": {
         "description": "File manipulation tools: read, write, patch (with fuzzy matching), and search (content + files)",
         "tools": ["read_file", "write_file", "patch", "search_files"],
         "includes": []
     },
     
+    # 文本转语音：通过Edge TTS（免费）、ElevenLabs、OpenAI或xAI将文本转为音频
     "tts": {
         "description": "Text-to-speech: convert text to audio with Edge TTS (free), ElevenLabs, OpenAI, or xAI",
         "tools": ["text_to_speech"],
         "includes": []
     },
     
+    # 多步骤工作的任务规划与跟踪
     "todo": {
         "description": "Task planning and tracking for multi-step work",
         "tools": ["todo"],
         "includes": []
     },
     
+    # 跨会话持久化记忆（个人笔记+用户档案）
     "memory": {
         "description": "Persistent memory across sessions (personal notes + user profile)",
         "tools": ["memory"],
         "includes": []
     },
     
+    # 搜索并回顾带摘要的历史对话
     "session_search": {
         "description": "Search and recall past conversations with summarization",
         "tools": ["session_search"],
         "includes": []
     },
     
+    # 向用户提出澄清问题（选择题或开放式问题）
     "clarify": {
         "description": "Ask the user clarifying questions (multiple-choice or open-ended)",
         "tools": ["clarify"],
         "includes": []
     },
     
+    # 运行以编程方式调用工具的Python脚本（减少大模型往返次数）
     "code_execution": {
         "description": "Run Python scripts that call tools programmatically (reduces LLM round trips)",
         "tools": ["execute_code"],
         "includes": []
     },
     
+    # 生成具备独立上下文的子智能体，用于处理复杂子任务
     "delegation": {
         "description": "Spawn subagents with isolated context for complex subtasks",
         "tools": ["delegate_task"],
@@ -194,7 +231,7 @@ TOOLSETS = {
 
     # "honcho" toolset removed — Honcho is now a memory provider plugin.
     # Tools are injected via MemoryManager, not the toolset system.
-
+    # 家庭助手智能家居控制与监控
     "homeassistant": {
         "description": "Home Assistant smart home control and monitoring",
         "tools": ["ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service"],
@@ -203,13 +240,14 @@ TOOLSETS = {
 
 
     # Scenario-specific toolsets
-    
+    # 调试与故障排查工具集
     "debugging": {
         "description": "Debugging and troubleshooting toolkit",
         "tools": ["terminal", "process"],
         "includes": ["web", "file"]  # For searching error messages and solutions, and file operations
     },
     
+    # 无终端访问权限的安全工具集
     "safe": {
         "description": "Safe toolkit without terminal access",
         "tools": [],
@@ -223,6 +261,7 @@ TOOLSETS = {
     # which is gated on gateway running via its check_fn).
     # ==========================================================================
 
+    # 编辑器集成（VS Code、Zed、JetBrains）—— 专注编码的工具，无消息、音频或澄清界面
     "hermes-acp": {
         "description": "Editor integration (VS Code, Zed, JetBrains) — coding-focused tools without messaging, audio, or clarify UI",
         "tools": [
@@ -242,6 +281,7 @@ TOOLSETS = {
         "includes": []
     },
 
+    # 兼容OpenAI的API服务器——可通过HTTP访问完整代理工具，无澄清、发送消息等交互式UI工具
     "hermes-api-server": {
         "description": "OpenAI-compatible API server — full agent tools accessible via HTTP (no interactive UI tools like clarify or send_message)",
         "tools": [
@@ -408,6 +448,14 @@ def get_toolset(name: str) -> Optional[Dict[str, Any]]:
     Returns:
         Dict: Toolset definition with description, tools, and includes
         None: If toolset not found
+    按名称获取工具集定义。
+
+    参数：
+        name (str)：工具集名称
+
+    返回：
+        Dict：包含描述、工具及包含项的工具集定义
+        None：未找到工具集时返回
     """
     toolset = TOOLSETS.get(name)
     if toolset:
@@ -457,6 +505,16 @@ def resolve_toolset(name: str, visited: Set[str] = None) -> List[str]:
         
     Returns:
         List[str]: List of all tool names in the toolset
+    递归解析工具集以获取所有工具名称。
+
+    该函数通过递归解析所包含的工具集并合并所有工具来处理工具集组合。
+
+    参数：
+        name (str)：要解析的工具集名称
+        visited (Set[str])：已访问的工具集集合（用于循环检测）
+
+    返回：
+        List[str]：该工具集中所有工具的名称列表
     """
     if visited is None:
         visited = set()
@@ -506,6 +564,13 @@ def resolve_multiple_toolsets(toolset_names: List[str]) -> List[str]:
         
     Returns:
         List[str]: Combined list of all tool names (deduplicated)
+    解析多个工具集并合并其工具。
+
+    参数：
+        toolset_names (List[str])：待解析的工具集名称列表
+
+    返回：
+        List[str]：所有工具名称的合并列表（已去重）
     """
     all_tools = set()
     
@@ -521,6 +586,8 @@ def _get_plugin_toolset_names() -> Set[str]:
 
     These are toolsets that exist in the registry but not in the static
     ``TOOLSETS`` dict — i.e. they were added by plugins at load time.
+    返回插件注册的工具集名称（来自工具注册表）。
+    这些是存在于注册表中、但不在静态`TOOLSETS`字典中的工具集——即它们是插件在加载时添加的。
     """
     try:
         from tools.registry import registry
@@ -535,6 +602,7 @@ def _get_plugin_toolset_names() -> Set[str]:
 
 def _get_registry_toolset_aliases() -> Dict[str, str]:
     """Return explicit toolset aliases registered in the live registry."""
+    """返回实时注册表中已注册的显式工具集别名。"""
     try:
         from tools.registry import registry
         return registry.get_registered_toolset_aliases()
@@ -550,6 +618,13 @@ def get_all_toolsets() -> Dict[str, Dict[str, Any]]:
     
     Returns:
         Dict: All toolset definitions
+    """
+    """
+    获取所有可用工具集及其定义。
+    包含静态定义的工具集和插件注册的工具集。
+
+    返回：
+        Dict：所有工具集定义
     """
     result = dict(TOOLSETS)
     aliases = _get_registry_toolset_aliases()
@@ -575,6 +650,11 @@ def get_toolset_names() -> List[str]:
     
     Returns:
         List[str]: List of toolset names
+    获取所有可用工具集的名称（不含别名）。
+    包含插件注册的工具集名称。
+
+    返回：
+        List[str]：工具集名称列表
     """
     names = set(TOOLSETS.keys())
     aliases = _get_registry_toolset_aliases()
@@ -599,6 +679,15 @@ def validate_toolset(name: str) -> bool:
         
     Returns:
         bool: True if valid, False otherwise
+    """
+    """
+    检查工具集名称是否有效。
+
+    参数：
+        name (str)：待验证的工具集名称
+
+    返回：
+        bool：有效则返回True，否则返回False
     """
     # Accept special alias names for convenience
     if name in {"all", "*"}:
@@ -625,6 +714,15 @@ def create_custom_toolset(
         tools (List[str]): Direct tools to include
         includes (List[str]): Other toolsets to include
     """
+    """
+    在运行时创建自定义工具集。
+
+    参数：
+        name (str)：新工具集的名称
+        description (str)：工具集的描述
+        tools (List[str])：要包含的直接工具
+        includes (List[str])：要包含的其他工具集
+    """
     TOOLSETS[name] = {
         "description": description,
         "tools": tools or [],
@@ -643,6 +741,13 @@ def get_toolset_info(name: str) -> Dict[str, Any]:
         
     Returns:
         Dict: Detailed toolset information
+    获取工具集的详细信息，包含已解析的工具。
+
+    参数：
+        name (str)：工具集名称
+
+    返回：
+        Dict：工具集详细信息
     """
     toolset = get_toolset(name)
     if not toolset:

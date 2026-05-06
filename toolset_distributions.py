@@ -18,6 +18,25 @@ Usage:
     # List all available distributions
     all_dists = list_distributions()
 """
+"""
+工具集分发模块
+
+此模块定义了数据生成运行的工具集分布。
+每个分布都指定了应该使用哪些工具集及其概率
+在批处理过程中，为任何给定的提示选择。
+
+分布是一个字典，将工具集名称映射到它们的选择概率（%）。
+概率之和应为100，但如果没有，系统将正常化。
+
+用途：
+从toolset_distributions导入get_distribution、list_distributings
+    
+#获取特定的分布
+dist=get_distribution（“image_gen”）
+    
+#列出所有可用的发行版
+all_dists=列表分布（）
+"""
 
 from typing import Dict, List, Optional
 import random
@@ -29,7 +48,7 @@ from toolsets import validate_toolset
 DISTRIBUTIONS = {
     # Default: All tools available 100% of the time
     "default": {
-        "description": "All available tools, all the time",
+        "description": "All available tools, all the time", #随时待命，全工具全开 
         "toolsets": {
             "web": 100,
             "vision": 100,
@@ -43,7 +62,7 @@ DISTRIBUTIONS = {
     
     # Image generation focused distribution
     "image_gen": {
-        "description": "Heavy focus on image generation with vision and web support",
+        "description": "Heavy focus on image generation with vision and web support", #我会专注为你生成带有视觉和网页适配的图片
         "toolsets": {
             "image_gen": 90,  # 80% chance of image generation tools
             "vision": 90,      # 60% chance of vision tools
@@ -55,7 +74,7 @@ DISTRIBUTIONS = {
     
     # Research-focused distribution
     "research": {
-        "description": "Web research with vision analysis and reasoning",
+        "description": "Web research with vision analysis and reasoning", # 结合视觉分析与逻辑推理的网络调研
         "toolsets": {
             "web": 90,       # 90% chance of web tools
             "browser": 70,   # 70% chance of browser tools for deep research
@@ -67,7 +86,7 @@ DISTRIBUTIONS = {
 
     # Scientific problem solving focused distribution
     "science": {
-        "description": "Scientific research with web, terminal, file, and browser capabilities",
+        "description": "Scientific research with web, terminal, file, and browser capabilities", # 具备网络、终端、文件及浏览器能力的科研工作
         "toolsets": {
             "web": 94,       # 94% chance of web tools
             "terminal": 94,  # 94% chance of terminal tools
@@ -81,7 +100,7 @@ DISTRIBUTIONS = {
 
     # Development-focused distribution
     "development": {
-        "description": "Terminal, file tools, and reasoning with occasional web lookup",
+        "description": "Terminal, file tools, and reasoning with occasional web lookup", # 终端、文件工具与逻辑推理，辅以不定期网络检索
         "toolsets": {
             "terminal": 80,  # 80% chance of terminal tools
             "file": 80,      # 80% chance of file tools (read, write, patch, search)
@@ -93,7 +112,7 @@ DISTRIBUTIONS = {
     
     # Safe mode (no terminal)
     "safe": {
-        "description": "All tools except terminal for safety",
+        "description": "All tools except terminal for safety", # 出于安全考虑，禁用终端，开放其余全部工具
         "toolsets": {
             "web": 80,
             "browser": 70,   # Browser is safe (no local filesystem access)
@@ -105,7 +124,7 @@ DISTRIBUTIONS = {
     
     # Balanced distribution
     "balanced": {
-        "description": "Equal probability of all toolsets",
+        "description": "Equal probability of all toolsets", # 所有工具集等概率启用
         "toolsets": {
             "web": 50,
             "vision": 50,
@@ -119,7 +138,7 @@ DISTRIBUTIONS = {
     
     # Minimal (web only)
     "minimal": {
-        "description": "Only web tools for basic research",
+        "description": "Only web tools for basic research", # 仅使用网页工具开展基础调研
         "toolsets": {
             "web": 100
         }
@@ -127,7 +146,7 @@ DISTRIBUTIONS = {
     
     # Terminal only
     "terminal_only": {
-        "description": "Terminal and file tools for code execution tasks",
+        "description": "Terminal and file tools for code execution tasks", # 用于代码执行任务的终端和文件工具
         "toolsets": {
             "terminal": 100,
             "file": 100
@@ -136,7 +155,7 @@ DISTRIBUTIONS = {
     
     # Terminal + web (common for coding tasks that need docs)
     "terminal_web": {
-        "description": "Terminal and file tools with web search for documentation lookup",
+        "description": "Terminal and file tools with web search for documentation lookup", # 终端与文件工具，附带网页检索用于查阅文档
         "toolsets": {
             "terminal": 100,
             "file": 100,
@@ -146,7 +165,7 @@ DISTRIBUTIONS = {
     
     # Creative (vision + image generation)
     "creative": {
-        "description": "Image generation and vision analysis focus",
+        "description": "Image generation and vision analysis focus", # 专注图像生成与视觉分析
         "toolsets": {
             "image_gen": 90,
             "vision": 90,
@@ -154,9 +173,9 @@ DISTRIBUTIONS = {
         }
     },
     
-    # Reasoning heavy
+    # Reasoning heavy 强推理模式
     "reasoning": {
-        "description": "Heavy mixture of agents usage with minimal other tools",
+        "description": "Heavy mixture of agents usage with minimal other tools", # 大量智能体混用，其他工具极简使用
         "toolsets": {
             "moa": 90,
             "web": 30,
@@ -166,7 +185,7 @@ DISTRIBUTIONS = {
     
     # Browser-based web interaction
     "browser_use": {
-        "description": "Full browser-based web interaction with search, vision, and page control",
+        "description": "Full browser-based web interaction with search, vision, and page control", # 基于浏览器的全量网页交互，包含搜索、视觉分析与页面操控
         "toolsets": {
             "browser": 100,  # All browser tools always available
             "web": 80,       # Web search for finding URLs and quick lookups
@@ -176,7 +195,7 @@ DISTRIBUTIONS = {
     
     # Browser only (no other tools)
     "browser_only": {
-        "description": "Only browser automation tools for pure web interaction tasks",
+        "description": "Only browser automation tools for pure web interaction tasks", # 仅浏览器自动化工具，用于纯网页交互任务
         "toolsets": {
             "browser": 100
         }
@@ -185,6 +204,7 @@ DISTRIBUTIONS = {
     # Browser-focused tasks distribution (for browser-use-tasks.jsonl)
     "browser_tasks": {
         "description": "Browser-focused distribution (browser toolset includes web_search for finding URLs since Google blocks direct browser searches)",
+        # 以浏览器工具集为主分配（浏览器工具集内置网页搜索用于查找网址，因谷歌限制直接浏览器检索）
         "toolsets": {
             "browser": 97,   # 97% - browser tools (includes web_search) almost always available
             "vision": 12,    # 12% - vision analysis occasionally
@@ -195,6 +215,7 @@ DISTRIBUTIONS = {
     # Terminal-focused tasks distribution (for nous-terminal-tasks.jsonl)
     "terminal_tasks": {
         "description": "Terminal-focused distribution with high terminal/file availability, occasional other tools",
+        # 以终端为核心分配模式，终端与文件工具高可用，其他工具按需少量启用。
         "toolsets": {
             "terminal": 97,   # 97% - terminal almost always available
             "file": 97,       # 97% - file tools almost always available
@@ -208,6 +229,7 @@ DISTRIBUTIONS = {
     # Mixed browser+terminal tasks distribution (for mixed-browser-terminal-tasks.jsonl)
     "mixed_tasks": {
         "description": "Mixed distribution with high browser, terminal, and file availability for complex tasks",
+        # 混合工具分配模式，高可用浏览器、终端及文件工具，适配复杂任务。
         "toolsets": {
             "browser": 92,    # 92% - browser tools highly available
             "terminal": 92,   # 92% - terminal highly available
@@ -298,6 +320,15 @@ def validate_distribution(distribution_name: str) -> bool:
     Returns:
         bool: True if valid, False otherwise
     """
+    """
+    校验分发名称是否有效。
+
+    参数：
+    distribution_name（字符串）：待校验的分发名称
+
+    返回：
+    布尔值：有效则返回True，无效则返回False
+    """
     return distribution_name in DISTRIBUTIONS
 
 
@@ -307,6 +338,12 @@ def print_distribution_info(distribution_name: str) -> None:
     
     Args:
         distribution_name (str): Distribution name
+    """
+    """
+    打印分发的详细信息。
+
+    参数：
+    distribution_name（字符串）：分发名称
     """
     dist = get_distribution(distribution_name)
     if not dist:
